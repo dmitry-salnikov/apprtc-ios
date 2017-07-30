@@ -39,10 +39,23 @@ static NSString const *kRTCSessionDescriptionSdpKey = @"sdp";
   return [[RTCSessionDescription alloc] initWithType:[RTCSessionDescription typeForString:type] sdp:sdp];
 }
 
+/**
+ WebRTC has changed the description to include the type of the message, e.g. offer\n, at the start of the description.
+ We need to trim that off and ensure that the description starts with v= so that other AppRTC clients recognise it.
+ */
+- (NSString *)sdpJSONDescription {
+  NSString *result = self.description;
+  NSRange r = [result rangeOfString:@"v="];
+  if (r.location != NSNotFound) {
+    result = [result substringFromIndex:r.location];
+  }
+  return result;
+}
+
 - (NSData *)JSONData {
   NSDictionary *json = @{
     kRTCSessionDescriptionTypeKey : [RTCSessionDescription stringForType:self.type],
-    kRTCSessionDescriptionSdpKey : self.description
+    kRTCSessionDescriptionSdpKey : [self sdpJSONDescription]
   };
   return [NSJSONSerialization dataWithJSONObject:json options:0 error:nil];
 }
