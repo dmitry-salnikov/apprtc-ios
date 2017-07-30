@@ -29,7 +29,7 @@
 
 #import "ARDSignalingMessage.h"
 #import "ARDUtilities.h"
-#import "RTCICEServer+JSON.h"
+#import "RTCIceServer+JSON.h"
 
 static NSString const *kARDRegisterResultKey = @"result";
 static NSString const *kARDRegisterResultParamsKey = @"params";

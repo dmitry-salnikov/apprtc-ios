@@ -34,18 +34,17 @@
 #import "ARDSignalingMessage.h"
 #import "ARDUtilities.h"
 #import "ARDWebSocketChannel.h"
-#import "RTCICECandidate+JSON.h"
-#import "RTCICEServer+JSON.h"
-#import "RTCMediaConstraints.h"
-#import "RTCMediaStream.h"
-#import "RTCPair.h"
-#import "RTCPeerConnection.h"
-#import "RTCPeerConnectionDelegate.h"
-#import "RTCPeerConnectionFactory.h"
+#import "RTCIceCandidate+JSON.h"
+#import "RTCIceServer+JSON.h"
+#import <WebRTC/RTCConfiguration.h>
+#import <WebRTC/RTCMediaConstraints.h>
+#import <WebRTC/RTCMediaStream.h>
+#import <WebRTC/RTCPeerConnection.h>
+#import <WebRTC/RTCPeerConnectionFactory.h>
 #import "RTCSessionDescription+JSON.h"
-#import "RTCSessionDescriptionDelegate.h"
-#import "RTCVideoCapturer.h"
-#import "RTCVideoTrack.h"
+#import <WebRTC/RTCCameraVideoCapturer.h>
+#import <WebRTC/RTCVideoTrack.h>
+#import <WebRTC/RTCAVFoundationVideoSource.h>
 
 // TODO(tkchin): move these to a configuration object.
 static NSString *kARDRoomServerHostUrl =
@@ -74,7 +73,7 @@ static NSInteger kARDAppClientErrorInvalidClient = -6;
 static NSInteger kARDAppClientErrorInvalidRoom = -7;
 
 @interface ARDAppClient () <ARDWebSocketChannelDelegate,
-    RTCPeerConnectionDelegate, RTCSessionDescriptionDelegate>
+    RTCPeerConnectionDelegate>
 @property(nonatomic, strong) ARDWebSocketChannel *channel;
 @property(nonatomic, strong) RTCPeerConnection *peerConnection;
 @property(nonatomic, strong) RTCPeerConnectionFactory *factory;
@@ -294,13 +293,12 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
 
 #pragma mark - RTCPeerConnectionDelegate
 
-- (void)peerConnection:(RTCPeerConnection *)peerConnection
-    signalingStateChanged:(RTCSignalingState)stateChanged {
+
+- (void)peerConnection:(nonnull RTCPeerConnection *)peerConnection didChangeSignalingState:(RTCSignalingState)stateChanged {
   NSLog(@"Signaling state changed: %d", stateChanged);
 }
 
-- (void)peerConnection:(RTCPeerConnection *)peerConnection
-           addedStream:(RTCMediaStream *)stream {
+- (void)peerConnection:(nonnull RTCPeerConnection *)peerConnection didAddStream:(nonnull RTCMediaStream *)stream {
   dispatch_async(dispatch_get_main_queue(), ^{
     NSLog(@"Received %lu video tracks and %lu audio tracks",
         (unsigned long)stream.videoTracks.count,
@@ -314,28 +312,23 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
   });
 }
 
-- (void)peerConnection:(RTCPeerConnection *)peerConnection
-        removedStream:(RTCMediaStream *)stream {
+- (void)peerConnection:(nonnull RTCPeerConnection *)peerConnection didRemoveStream:(nonnull RTCMediaStream *)stream {
   NSLog(@"Stream was removed.");
 }
 
-- (void)peerConnectionOnRenegotiationNeeded:
-    (RTCPeerConnection *)peerConnection {
+- (void)peerConnectionShouldNegotiate:(nonnull RTCPeerConnection *)peerConnection {
   NSLog(@"WARNING: Renegotiation needed but unimplemented.");
 }
 
-- (void)peerConnection:(RTCPeerConnection *)peerConnection
-    iceConnectionChanged:(RTCICEConnectionState)newState {
+- (void)peerConnection:(nonnull RTCPeerConnection *)peerConnection didChangeIceConnectionState:(RTCIceConnectionState)newState {
   NSLog(@"ICE state changed: %d", newState);
 }
 
-- (void)peerConnection:(RTCPeerConnection *)peerConnection
-    iceGatheringChanged:(RTCICEGatheringState)newState {
+- (void)peerConnection:(nonnull RTCPeerConnection *)peerConnection didChangeIceGatheringState:(RTCIceGatheringState)newState {
   NSLog(@"ICE gathering state changed: %d", newState);
 }
 
-- (void)peerConnection:(RTCPeerConnection *)peerConnection
-       gotICECandidate:(RTCICECandidate *)candidate {
+- (void)peerConnection:(nonnull RTCPeerConnection *)peerConnection didGenerateIceCandidate:(nonnull RTCIceCandidate *)candidate {
   dispatch_async(dispatch_get_main_queue(), ^{
     ARDICECandidateMessage *message =
         [[ARDICECandidateMessage alloc] initWithCandidate:candidate];
@@ -345,6 +338,10 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
 
 - (void)peerConnection:(RTCPeerConnection*)peerConnection
     didOpenDataChannel:(RTCDataChannel*)dataChannel {
+}
+
+- (void)peerConnection:(nonnull RTCPeerConnection *)peerConnection didRemoveIceCandidates:(nonnull NSArray<RTCIceCandidate *> *)candidates {
+  NSLog(@"Ice candidate was removed.");
 }
 
 #pragma mark - RTCSessionDescriptionDelegate
@@ -366,8 +363,10 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
       [_delegate appClient:self didError:sdpError];
       return;
     }
-    [_peerConnection setLocalDescriptionWithDelegate:self
-                                  sessionDescription:sdp];
+    [_peerConnection setLocalDescription:sdp completionHandler:^(NSError * _Nullable error) {
+      NSLog(@"Set local description with error: %@", error);
+      [self peerConnection:_peerConnection didSetSessionDescriptionWithError:error];
+    }];
     ARDSessionDescriptionMessage *message =
         [[ARDSessionDescriptionMessage alloc] initWithDescription:sdp];
     [self sendSignalingMessage:message];
@@ -394,8 +393,10 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
     // an answer and set the local description.
     if (!_isInitiator && !_peerConnection.localDescription) {
       RTCMediaConstraints *constraints = [self defaultAnswerConstraints];
-      [_peerConnection createAnswerWithDelegate:self
-                                    constraints:constraints];
+      [_peerConnection answerForConstraints:constraints completionHandler:^(RTCSessionDescription * _Nullable sdp, NSError * _Nullable error) {
+        [self peerConnection:_peerConnection didCreateSessionDescription:sdp error:error];
+        NSLog(@"Answer for constraints with sdp = %@, error=%@", sdp, error);
+      }];
 
     }
   });
@@ -415,9 +416,10 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
 
   // Create peer connection.
   RTCMediaConstraints *constraints = [self defaultPeerConnectionConstraints];
-  _peerConnection = [_factory peerConnectionWithICEServers:_iceServers
-                                               constraints:constraints
-                                                  delegate:self];
+  RTCConfiguration *configuration = [[RTCConfiguration alloc] init];
+  configuration.iceServers = _iceServers;
+  
+  _peerConnection = [_factory peerConnectionWithConfiguration:configuration constraints:constraints delegate:self];
   RTCMediaStream *localStream = [self createLocalMediaStream];
   [_peerConnection addStream:localStream];
   if (_isInitiator) {
@@ -428,8 +430,9 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
 }
 
 - (void)sendOffer {
-  [_peerConnection createOfferWithDelegate:self
-                               constraints:[self defaultOfferConstraints]];
+  [_peerConnection offerForConstraints:[self defaultOfferConstraints] completionHandler:^(RTCSessionDescription * _Nullable sdp, NSError * _Nullable error) {
+    [self peerConnection:_peerConnection didCreateSessionDescription:sdp error:error];
+  }];
 }
 
 - (void)waitForAnswer {
@@ -455,14 +458,16 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
       ARDSessionDescriptionMessage *sdpMessage =
           (ARDSessionDescriptionMessage *)message;
       RTCSessionDescription *description = sdpMessage.sessionDescription;
-      [_peerConnection setRemoteDescriptionWithDelegate:self
-                                     sessionDescription:description];
+      [_peerConnection setRemoteDescription:description completionHandler:^(NSError * _Nullable error) {
+        [self peerConnection:_peerConnection didSetSessionDescriptionWithError:error];
+        NSLog(@"Set remote description with error: %@", error);
+      }];
       break;
     }
     case kARDSignalingMessageTypeCandidate: {
       ARDICECandidateMessage *candidateMessage =
           (ARDICECandidateMessage *)message;
-      [_peerConnection addICECandidate:candidateMessage.candidate];
+      [_peerConnection addIceCandidate:candidateMessage.candidate];
       break;
     }
     case kARDSignalingMessageTypeBye:
@@ -493,61 +498,61 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
     RTCVideoTrack *localVideoTrack = nil;
 #if !TARGET_IPHONE_SIMULATOR && TARGET_OS_IPHONE
 
-    NSString *cameraID = nil;
+    AVCaptureDevice *cameraID = nil;
     for (AVCaptureDevice *captureDevice in
          [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo]) {
         if (captureDevice.position == AVCaptureDevicePositionFront) {
-            cameraID = [captureDevice localizedName];
+            cameraID = captureDevice;
             break;
         }
     }
     NSAssert(cameraID, @"Unable to get the front camera id");
-    
-    RTCVideoCapturer *capturer = [RTCVideoCapturer capturerWithDeviceName:cameraID];
+
     RTCMediaConstraints *mediaConstraints = [self defaultMediaStreamConstraints];
-    RTCVideoSource *videoSource = [_factory videoSourceWithCapturer:capturer constraints:mediaConstraints];
-    localVideoTrack = [_factory videoTrackWithID:@"ARDAMSv0" source:videoSource];
+    RTCVideoSource *videoSource = [_factory avFoundationVideoSourceWithConstraints:mediaConstraints];
+    localVideoTrack = [_factory videoTrackWithSource:videoSource trackId:@"ARDAMSv0"];
 #endif
     return localVideoTrack;
 }
 
 - (RTCMediaStream *)createLocalMediaStream {
-    RTCMediaStream* localStream = [_factory mediaStreamWithLabel:@"ARDAMS"];
+    RTCMediaStream* localStream = [_factory mediaStreamWithStreamId:@"ARDAMS"];
 
     RTCVideoTrack *localVideoTrack = [self createLocalVideoTrack];
     if (localVideoTrack) {
         [localStream addVideoTrack:localVideoTrack];
         [_delegate appClient:self didReceiveLocalVideoTrack:localVideoTrack];
     }
-    
-    [localStream addAudioTrack:[_factory audioTrackWithID:@"ARDAMSa0"]];
+
+    [localStream addAudioTrack:[_factory audioTrackWithTrackId:@"ARDAMSa0"]];
     if (_isSpeakerEnabled) [self enableSpeaker];
     return localStream;
 }
 
 - (void)requestTURNServersWithURL:(NSURL *)requestURL
     completionHandler:(void (^)(NSArray *turnServers))completionHandler {
-  NSParameterAssert([requestURL absoluteString].length);
-  NSMutableURLRequest *request =
-      [NSMutableURLRequest requestWithURL:requestURL];
-  // We need to set origin because TURN provider whitelists requests based on
-  // origin.
-  [request addValue:@"Mozilla/5.0" forHTTPHeaderField:@"user-agent"];
-  [request addValue:self.serverHostUrl forHTTPHeaderField:@"origin"];
-  [NSURLConnection sendAsyncRequest:request
-                  completionHandler:^(NSURLResponse *response,
-                                      NSData *data,
-                                      NSError *error) {
-    NSArray *turnServers = [NSArray array];
-    if (error) {
-      NSLog(@"Unable to get TURN server.");
-      completionHandler(turnServers);
-      return;
-    }
-    NSDictionary *dict = [NSDictionary dictionaryWithJSONData:data];
-    turnServers = [RTCICEServer serversFromCEODJSONDictionary:dict];
-    completionHandler(turnServers);
-  }];
+//  NSParameterAssert([requestURL absoluteString].length);
+//  NSMutableURLRequest *request =
+//      [NSMutableURLRequest requestWithURL:requestURL];
+//  // We need to set origin because TURN provider whitelists requests based on
+//  // origin.
+//  [request addValue:@"Mozilla/5.0" forHTTPHeaderField:@"user-agent"];
+//  [request addValue:self.serverHostUrl forHTTPHeaderField:@"origin"];
+//  [NSURLConnection sendAsyncRequest:request
+//                  completionHandler:^(NSURLResponse *response,
+//                                      NSData *data,
+//                                      NSError *error) {
+//    NSArray *turnServers = [NSArray array];
+//    if (error) {
+//      NSLog(@"Unable to get TURN server.");
+//      completionHandler(turnServers);
+//      return;
+//    }
+//    NSDictionary *dict = [NSDictionary dictionaryWithJSONData:data];
+//    turnServers = [RTCIceServer serversFromCEODJSONDictionary:dict];
+//    completionHandler(turnServers);
+//  }];
+  completionHandler(@[]);
 }
 
 #pragma mark - Room server methods
@@ -691,10 +696,10 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
 }
 
 - (RTCMediaConstraints *)defaultOfferConstraints {
-  NSArray *mandatoryConstraints = @[
-      [[RTCPair alloc] initWithKey:@"OfferToReceiveAudio" value:@"true"],
-      [[RTCPair alloc] initWithKey:@"OfferToReceiveVideo" value:@"true"]
-  ];
+  NSDictionary *mandatoryConstraints = @{
+      @"OfferToReceiveAudio": @"true",
+      @"OfferToReceiveVideo": @"true"
+  };
   RTCMediaConstraints* constraints =
       [[RTCMediaConstraints alloc]
           initWithMandatoryConstraints:mandatoryConstraints
@@ -703,9 +708,9 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
 }
 
 - (RTCMediaConstraints *)defaultPeerConnectionConstraints {
-  NSArray *optionalConstraints = @[
-      [[RTCPair alloc] initWithKey:@"DtlsSrtpKeyAgreement" value:@"true"]
-  ];
+  NSDictionary *optionalConstraints = @{
+      @"DtlsSrtpKeyAgreement": @"true"
+  };
   RTCMediaConstraints* constraints =
       [[RTCMediaConstraints alloc]
           initWithMandatoryConstraints:nil
@@ -713,11 +718,10 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
   return constraints;
 }
 
-- (RTCICEServer *)defaultSTUNServer {
-  NSURL *defaultSTUNServerURL = [NSURL URLWithString:kARDDefaultSTUNServerUrl];
-  return [[RTCICEServer alloc] initWithURI:defaultSTUNServerURL
+- (RTCIceServer *)defaultSTUNServer {
+  return [[RTCIceServer alloc] initWithURLStrings:@[ kARDDefaultSTUNServerUrl ]
                                   username:@""
-                                  password:@""];
+                                  credential:@""];
 }
 
 #pragma mark - Audio mute/unmute
@@ -760,20 +764,20 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
     RTCVideoTrack *localVideoTrack = nil;
 #if !TARGET_IPHONE_SIMULATOR && TARGET_OS_IPHONE
     //AVCaptureDevicePositionFront
-    NSString *cameraID = nil;
+    AVCaptureDevice *cameraID = nil;
     for (AVCaptureDevice *captureDevice in
          [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo]) {
         if (captureDevice.position == AVCaptureDevicePositionBack) {
-            cameraID = [captureDevice localizedName];
+            cameraID = captureDevice;
             break;
         }
     }
     NSAssert(cameraID, @"Unable to get the back camera id");
-    
-    RTCVideoCapturer *capturer = [RTCVideoCapturer capturerWithDeviceName:cameraID];
+
     RTCMediaConstraints *mediaConstraints = [self defaultMediaStreamConstraints];
-    RTCVideoSource *videoSource = [_factory videoSourceWithCapturer:capturer constraints:mediaConstraints];
-    localVideoTrack = [_factory videoTrackWithID:@"ARDAMSv0" source:videoSource];
+    RTCAVFoundationVideoSource *videoSource = [_factory avFoundationVideoSourceWithConstraints:mediaConstraints];
+  //TODO not choosing the right camera, might need to setup AVFoundation ourself
+    localVideoTrack = [_factory videoTrackWithSource:videoSource trackId:@"ARDAMSv0"];
 #endif
     return localVideoTrack;
 }

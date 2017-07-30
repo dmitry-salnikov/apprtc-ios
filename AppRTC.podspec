@@ -11,7 +11,7 @@ Pod::Spec.new do |s|
   s.requires_arc       = true
   s.frameworks         = "QuartzCore", "OpenGLES", "CoreGraphics", "CoreVideo", "CoreMedia", "CoreAudio", "AVFoundation", "AudioToolbox", "GLKit", "CFNetwork", "Security"
   s.libraries          = "sqlite3", "stdc++.6", "icucore", "c++"
-  s.dependency "libjingle_peerconnection"
+  s.dependency "WebRTC"
   s.dependency "SocketRocket"
 end
 

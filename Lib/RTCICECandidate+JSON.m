@@ -25,30 +25,30 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "RTCICECandidate+JSON.h"
+#import "RTCIceCandidate+JSON.h"
 
-static NSString const *kRTCICECandidateTypeKey = @"type";
-static NSString const *kRTCICECandidateTypeValue = @"candidate";
-static NSString const *kRTCICECandidateMidKey = @"id";
-static NSString const *kRTCICECandidateMLineIndexKey = @"label";
-static NSString const *kRTCICECandidateSdpKey = @"candidate";
+static NSString const *kRTCIceCandidateTypeKey = @"type";
+static NSString const *kRTCIceCandidateTypeValue = @"candidate";
+static NSString const *kRTCIceCandidateMidKey = @"id";
+static NSString const *kRTCIceCandidateMLineIndexKey = @"label";
+static NSString const *kRTCIceCandidateSdpKey = @"candidate";
 
-@implementation RTCICECandidate (JSON)
+@implementation RTCIceCandidate (JSON)
 
-+ (RTCICECandidate *)candidateFromJSONDictionary:(NSDictionary *)dictionary {
-  NSString *mid = dictionary[kRTCICECandidateMidKey];
-  NSString *sdp = dictionary[kRTCICECandidateSdpKey];
-  NSNumber *num = dictionary[kRTCICECandidateMLineIndexKey];
++ (RTCIceCandidate *)candidateFromJSONDictionary:(NSDictionary *)dictionary {
+  NSString *mid = dictionary[kRTCIceCandidateMidKey];
+  NSString *sdp = dictionary[kRTCIceCandidateSdpKey];
+  NSNumber *num = dictionary[kRTCIceCandidateMLineIndexKey];
   NSInteger mLineIndex = [num integerValue];
-  return [[RTCICECandidate alloc] initWithMid:mid index:mLineIndex sdp:sdp];
+  return [[RTCIceCandidate alloc] initWithSdp:sdp sdpMLineIndex:mLineIndex sdpMid:mid];
 }
 
 - (NSData *)JSONData {
   NSDictionary *json = @{
-    kRTCICECandidateTypeKey : kRTCICECandidateTypeValue,
-    kRTCICECandidateMLineIndexKey : @(self.sdpMLineIndex),
-    kRTCICECandidateMidKey : self.sdpMid,
-    kRTCICECandidateSdpKey : self.sdp
+    kRTCIceCandidateTypeKey : kRTCIceCandidateTypeValue,
+    kRTCIceCandidateMLineIndexKey : @(self.sdpMLineIndex),
+    kRTCIceCandidateMidKey : self.sdpMid,
+    kRTCIceCandidateSdpKey : self.sdp
   };
   NSError *error = nil;
   NSData *data =

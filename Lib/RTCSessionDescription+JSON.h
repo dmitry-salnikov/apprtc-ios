@@ -25,7 +25,7 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "RTCSessionDescription.h"
+#import <WebRTC/RTCSessionDescription.h>
 
 @interface RTCSessionDescription (JSON)
 

@@ -25,37 +25,35 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "RTCICEServer+JSON.h"
+#import "RTCIceServer+JSON.h"
 
-static NSString const *kRTCICEServerUsernameKey = @"username";
-static NSString const *kRTCICEServerPasswordKey = @"password";
-static NSString const *kRTCICEServerUrisKey = @"uris";
-static NSString const *kRTCICEServerUrlKey = @"urls";
-static NSString const *kRTCICEServerCredentialKey = @"credential";
+static NSString const *kRTCIceServerUsernameKey = @"username";
+static NSString const *kRTCIceServerPasswordKey = @"password";
+static NSString const *kRTCIceServerUrisKey = @"uris";
+static NSString const *kRTCIceServerUrlKey = @"urls";
+static NSString const *kRTCIceServerCredentialKey = @"credential";
 
-@implementation RTCICEServer (JSON)
+@implementation RTCIceServer (JSON)
 
-+ (RTCICEServer *)serverFromJSONDictionary:(NSDictionary *)dictionary {
-  NSString *url = dictionary[kRTCICEServerUrlKey];
-  NSString *username = dictionary[kRTCICEServerUsernameKey];
-  NSString *credential = dictionary[kRTCICEServerCredentialKey];
++ (RTCIceServer *)serverFromJSONDictionary:(NSDictionary *)dictionary {
+  NSString *url = dictionary[kRTCIceServerUrlKey];
+  NSString *username = dictionary[kRTCIceServerUsernameKey];
+  NSString *credential = dictionary[kRTCIceServerCredentialKey];
   username = username ? username : @"";
   credential = credential ? credential : @"";
-  return [[RTCICEServer alloc] initWithURI:[NSURL URLWithString:url]
-                                  username:username
-                                  password:credential];
+  return [[RTCIceServer alloc] initWithURLStrings:@[ url ] username:username credential:credential];
 }
 
 + (NSArray *)serversFromCEODJSONDictionary:(NSDictionary *)dictionary {
-  NSString *username = dictionary[kRTCICEServerUsernameKey];
-  NSString *password = dictionary[kRTCICEServerPasswordKey];
-  NSArray *uris = dictionary[kRTCICEServerUrisKey];
+  NSString *username = dictionary[kRTCIceServerUsernameKey];
+  NSString *password = dictionary[kRTCIceServerPasswordKey];
+  NSArray *uris = dictionary[kRTCIceServerUrisKey];
   NSMutableArray *servers = [NSMutableArray arrayWithCapacity:uris.count];
   for (NSString *uri in uris) {
-    RTCICEServer *server =
-        [[RTCICEServer alloc] initWithURI:[NSURL URLWithString:uri]
+    RTCIceServer *server =
+        [[RTCIceServer alloc] initWithURLStrings:@[ uri ]
                                  username:username
-                                 password:password];
+                                 credential:password];
     [servers addObject:server];
   }
   return servers;
